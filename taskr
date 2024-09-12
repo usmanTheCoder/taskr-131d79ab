@@ -1,0 +1,499 @@
+'use client';
+import * as React from 'react';
+import { useAppSelector, useAppDispatch } from '@/redux/hooks';
+import { fetchTasks, updateTask, deleteTask } from '@/redux/taskSlice';
+import { TaskList, TaskForm, Modal, Spinner, Alert } from '@/components';
+import { useQuery } from '@/hooks/useQuery';
+import { useModal } from '@/hooks/useModal';
+import { trpc } from '@/lib/trpc';
+import { useAuth } from '@/hooks/useAuth';
+import { Task as TaskType } from '@/types';
+
+const TasksPage: React.FC = () => {
+  const { data: tasks, isLoading, error } = useQuery(fetchTasks);
+  const dispatch = useAppDispatch();
+  const { user } = useAuth();
+  const { isModalOpen, openModal, closeModal } = useModal();
+
+  const handleToggleTask = async (task: TaskType) => {
+    const updatedTask = { ...task, completed: !task.completed };
+    try {
+      await dispatch(updateTask(updatedTask)).unwrap();
+    } catch (err) {
+      console.error('Failed to update task:', err);
+    }
+  };
+
+  const handleDeleteTask = async (task: TaskType) => {
+    try {
+      await dispatch(deleteTask(task.id)).unwrap();
+    } catch (err) {
+      console.error('Failed to delete task:', err);
+    }
+  };
+
+  const handleCreateTask = async (taskData: Omit<TaskType, 'id'>) => {
+    try {
+      const res = await trpc.createTask.mutate({ ...taskData, userId: user?.id });
+      console.log('New task created:', res);
+      closeModal();
+    } catch (err) {
+      console.error('Failed to create task:', err);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      {isLoading ? (
+        <Spinner />
+      ) : error ? (
+        <Alert type="error" message={error.message} />
+      ) : (
+        <>
+          <TaskList
+            tasks={tasks}
+            onToggleTask={handleToggleTask}
+            onDeleteTask={handleDeleteTask}
+          />
+          <button
+            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded my-4 self-start"
+            onClick={openModal}
+          >
+            Add Task
+          </button>
+          <Modal isOpen={isModalOpen} onClose={closeModal}>
+            <TaskForm onSubmit={handleCreateTask} />
+          </Modal>
+        </>
+      )}
+    </div>
+  );
+};
+
+export default TasksPage;
+```
+
+```typescript
+import { ReactNode } from 'react';
+import { Provider } from 'react-redux';
+import { store } from '@/redux/store';
+import { Header, Footer } from '@/components/Layout';
+import '@/styles/globals.css';
+
+export const metadata = {
+  title: 'Taskr',
+  description: 'A simple todo list app',
+};
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return (
+    <html>
+      <body>
+        <Provider store={store}>
+          <div className="flex flex-col min-h-screen">
+            <Header />
+            <main className="flex-grow container mx-auto px-4 py-8">
+              {children}
+            </main>
+            <Footer />
+          </div>
+        </Provider>
+      </body>
+    </html>
+  );
+}
+```
+
+```typescript
+import { LoginForm } from '@/components/Form';
+
+export default function Home() {
+  return (
+    <div className="flex flex-col items-center justify-center h-full">
+      <h1 className="text-4xl font-bold mb-8">Welcome to Taskr</h1>
+      <LoginForm />
+    </div>
+  );
+}
+```
+
+```typescript
+import { Sidebar } from '@/components/Layout';
+
+export default function TasksLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex">
+      <Sidebar />
+      <div className="flex-1 p-4">{children}</div>
+    </div>
+  );
+}
+```
+
+```typescript
+'use client';
+import React from 'react';
+import { TaskCard } from './TaskCard';
+import { Task } from '@/types';
+
+interface TaskListProps {
+  tasks: Task[];
+  onToggleTask: (task: Task) => void;
+  onDeleteTask: (task: Task) => void;
+}
+
+export const TaskList: React.FC<TaskListProps> = ({
+  tasks,
+  onToggleTask,
+  onDeleteTask,
+}) => {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      {tasks.map((task) => (
+        <TaskCard
+          key={task.id}
+          task={task}
+          onToggleTask={onToggleTask}
+          onDeleteTask={onDeleteTask}
+        />
+      ))}
+    </div>
+  );
+};
+```
+
+```typescript
+'use client';
+import React from 'react';
+import { FaTrashAlt, FaCheckCircle, FaCircle } from 'react-icons/fa';
+import { Task } from '@/types';
+
+interface TaskCardProps {
+  task: Task;
+  onToggleTask: (task: Task) => void;
+  onDeleteTask: (task: Task) => void;
+}
+
+export const TaskCard: React.FC<TaskCardProps> = ({
+  task,
+  onToggleTask,
+  onDeleteTask,
+}) => {
+  const handleToggle = () => onToggleTask(task);
+  const handleDelete = () => onDeleteTask(task);
+
+  return (
+    <div
+      className={`p-4 rounded shadow-md transition-colors ${
+        task.completed ? 'bg-green-200' : 'bg-white'
+      }`}
+    >
+      <div className="flex justify-between items-center mb-2">
+        <h3 className="text-lg font-semibold">{task.title}</h3>
+        <div>
+          <button
+            className="text-gray-500 hover:text-gray-700 mr-2"
+            onClick={handleToggle}
+          >
+            {task.completed ? <FaCheckCircle /> : <FaCircle />}
+          </button>
+          <button
+            className="text-red-500 hover:text-red-700"
+            onClick={handleDelete}
+          >
+            <FaTrashAlt />
+          </button>
+        </div>
+      </div>
+      <p className="text-gray-600">{task.description}</p>
+    </div>
+  );
+};
+```
+
+```typescript
+'use client';
+import React from 'react';
+import { useForm } from '@/hooks/useForm';
+import { FormField } from './FormField';
+import { Task } from '@/types';
+
+interface TaskFormProps {
+  onSubmit: (taskData: Omit<Task, 'id'>) => void;
+}
+
+export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit }) => {
+  const { values, handleChange, handleSubmit } = useForm<Omit<Task, 'id'>>({
+    initialValues: {
+      title: '',
+      description: '',
+      completed: false,
+    },
+    onSubmit,
+  });
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <FormField
+        label="Title"
+        id="title"
+        value={values.title}
+        onChange={handleChange}
+      />
+      <FormField
+        label="Description"
+        id="description"
+        value={values.description}
+        onChange={handleChange}
+        multiline
+      />
+      <button
+        type="submit"
+        className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+      >
+        Add Task
+      </button>
+    </form>
+  );
+};
+```
+
+```typescript
+'use client';
+import React from 'react';
+
+interface FormFieldProps {
+  label: string;
+  id: string;
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
+  multiline?: boolean;
+}
+
+export const FormField: React.FC<FormFieldProps> = ({
+  label,
+  id,
+  value,
+  onChange,
+  multiline = false,
+}) => {
+  const inputComponent = multiline ? (
+    <textarea
+      id={id}
+      value={value}
+      onChange={onChange}
+      className="border border-gray-300 rounded p-2 w-full"
+      rows={4}
+    />
+  ) : (
+    <input
+      type="text"
+      id={id}
+      value={value}
+      onChange={onChange}
+      className="border border-gray-300 rounded p-2 w-full"
+    />
+  );
+
+  return (
+    <div>
+      <label htmlFor={id} className="block font-semibold mb-1">
+        {label}
+      </label>
+      {inputComponent}
+    </div>
+  );
+};
+```
+
+```typescript
+'use client';
+import React from 'react';
+import Link from 'next/link';
+import { useAuth } from '@/hooks/useAuth';
+import { FaSignOutAlt } from 'react-icons/fa';
+
+export const Header: React.FC = () => {
+  const { user, logout } = useAuth();
+
+  return (
+    <header className="bg-gray-800 text-white py-4">
+      <div className="container mx-auto px-4 flex justify-between items-center">
+        <Link href="/" className="text-xl font-bold">
+          Taskr
+        </Link>
+        <div className="flex items-center">
+          {user ? (
+            <>
+              <span className="mr-4">
+                Welcome, <strong>{user.name}</strong>
+              </span>
+              <button
+                className="text-red-500 hover:text-red-700"
+                onClick={logout}
+              >
+                <FaSignOutAlt />
+              </button>
+            </>
+          ) : (
+            <Link href="/login" className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+              Login
+            </Link>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+};
+```
+
+```typescript
+'use client';
+import React from 'react';
+
+export const Footer: React.FC = () => {
+  return (
+    <footer className="bg-gray-800 text-white py-4">
+      <div className="container mx-auto px-4 text-center">
+        &copy; {new Date().getFullYear()} Taskr. All rights reserved.
+      </div>
+    </footer>
+  );
+};
+```
+
+```typescript
+'use client';
+import React from 'react';
+import Link from 'next/link';
+import { FaListAlt, FaPlus } from 'react-icons/fa';
+
+export const Sidebar: React.FC = () => {
+  return (
+    <div className="bg-gray-800 text-white p-4 h-screen sticky top-0">
+      <nav className="space-y-4">
+        <Link
+          href="/tasks"
+          className="flex items-center text-gray-300 hover:text-white"
+        >
+          <FaListAlt className="mr-2" />
+          Tasks
+        </Link>
+        <Link
+          href="/tasks/new"
+          className="flex items-center text-gray-300 hover:text-white"
+        >
+          <FaPlus className="mr-2" />
+          New Task
+        </Link>
+      </nav>
+    </div>
+  );
+};
+```
+
+```typescript
+'use client';
+import React, { ReactNode } from 'react';
+import ReactDOM from 'react-dom';
+
+interface ModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  children: ReactNode;
+}
+
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, children }) => {
+  if (!isOpen) return null;
+
+  return ReactDOM.createPortal(
+    <>
+      <div className="fixed inset-0 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold">New Task</h2>
+            <button
+              className="text-gray-500 hover:text-gray-700"
+              onClick={onClose}
+            >
+              &times;
+            </button>
+          </div>
+          {children}
+        </div>
+      </div>
+      <div className="fixed inset-0 bg-black opacity-50 z-40"></div>
+    </>,
+    document.body
+  );
+};
+```
+
+```typescript
+'use client';
+import React from 'react';
+
+export const Spinner: React.FC = () => {
+  return (
+    <div className="flex justify-center items-center h-full">
+      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+    </div>
+  );
+};
+```
+
+```typescript
+'use client';
+import React from 'react';
+
+interface AlertProps {
+  type: 'success' | 'error' | 'warning' | 'info';
+  message: string;
+}
+
+export const Alert: React.FC<AlertProps> = ({ type, message }) => {
+  const getAlertColor = () => {
+    switch (type) {
+      case 'success':
+        return 'bg-green-100 text-green-700';
+      case 'error':
+        return 'bg-red-100 text-red-700';
+      case 'warning':
+        return 'bg-yellow-100 text-yellow-700';
+      case 'info':
+        return 'bg-blue-100 text-blue-700';
+      default:
+        return 'bg-gray-100 text-gray-700';
+    }
+  };
+
+  return (
+    <div
+      className={`${getAlertColor()} border rounded-md p-4 mb-4`}
+      role="alert"
+    >
+      {message}
+    </div>
+  );
+};
+```
+
+```typescript
+import { useState, useEffect } from 'react';
+import { User } from '@/types';
+
+export const useAuth = () => {
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
+  }, []);
+
+  const
